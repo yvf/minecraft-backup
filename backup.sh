@@ -7,7 +7,7 @@
 # For Minecraft servers running in a GNU screen.
 # For most convenience, run automatically with cron.
 
-# Default Configuration 
+# Default Configuration
 SCREEN_NAME="" # Name of the GNU Screen or tmux pane your Minecraft server is running in
 SERVER_WORLD="" # Server world directory
 BACKUP_DIRECTORY="" # Directory to save backups in
@@ -21,12 +21,12 @@ PREFIX="Backup" # Shows in the chat message
 DEBUG=false # Enable debug messages
 SUPPRESS_WARNINGS=false # Suppress warnings
 WINDOW_MANAGER="screen" # Choices: screen, tmux
-
+MCRCON_PORT=25575
 # Other Variables (do not modify)
 DATE_FORMAT="%F_%H-%M-%S"
 TIMESTAMP=$(date +$DATE_FORMAT)
 
-while getopts 'a:cd:e:f:hi:l:m:o:p:qs:vw:' FLAG; do
+while getopts 'a:cd:e:f:hi:l:m:o:p:qr:s:t:vw:' FLAG; do
   case $FLAG in
     a) COMPRESSION_ALGORITHM=$OPTARG ;;
     c) ENABLE_CHAT_MESSAGES=true ;;
@@ -46,9 +46,11 @@ while getopts 'a:cd:e:f:hi:l:m:o:p:qs:vw:' FLAG; do
        echo "-o    Output directory"
        echo "-p    Prefix that shows in Minecraft chat (default: Backup)"
        echo "-q    Suppress warnings"
+       echo "-r    Password to the mcrcon"
        echo "-s    Minecraft server screen name"
+       echo "-t    Port to the mcrcon (default 25575)"
        echo "-v    Verbose mode"
-       echo "-w    Window manager: screen (default) or tmux"
+       echo "-w    Window manager: screen (default), tmux or mcrcon"
        exit 0
        ;;
     i) SERVER_WORLD=$OPTARG ;;
@@ -57,7 +59,9 @@ while getopts 'a:cd:e:f:hi:l:m:o:p:qs:vw:' FLAG; do
     o) BACKUP_DIRECTORY=$OPTARG ;;
     p) PREFIX=$OPTARG ;;
     q) SUPPRESS_WARNINGS=true ;;
+    r) MCRCON_PASSWORD=$OPTARG ;;
     s) SCREEN_NAME=$OPTARG ;;
+    t) MCRCON_PORT=$OPTARG ;;
     v) DEBUG=true ;;
     w) WINDOW_MANAGER=$OPTARG ;;
   esac
@@ -102,7 +106,9 @@ message-players () {
 }
 execute-command () {
   local COMMAND=$1
-  if [[ $SCREEN_NAME != "" ]]; then
+  if [[ $WINDOW_MANAGER == "mcrcon" ]]; then
+      echo "$COMMAND" | mcrcon -P $MCRCON_PORT -p "$MCRCON_PASSWORD"
+  elif [[ $SCREEN_NAME != "" ]]; then
     case $WINDOW_MANAGER in
       "screen") screen -S $SCREEN_NAME -p 0 -X stuff "$COMMAND$(printf \\r)"
         ;;
@@ -136,7 +142,7 @@ message-players-color () {
 # Notify players of start
 message-players "Starting backup..." "$ARCHIVE_FILE_NAME"
 
-# Parse file timestamp to one readable by "date" 
+# Parse file timestamp to one readable by "date"
 parse-file-timestamp () {
   local DATE_STRING=$(echo $1 | awk -F_ '{gsub(/-/,":",$2); print $1" "$2}')
   echo $DATE_STRING
@@ -206,7 +212,7 @@ delete-thinning () {
   for BLOCK_INDEX in ${!BLOCK_SIZES[@]}; do
     local BLOCK_SIZE=${BLOCK_SIZES[BLOCK_INDEX]}
     local BLOCK_FUNCTION=${BLOCK_FUNCTIONS[BLOCK_INDEX]}
-    local OLDEST_BACKUP_IN_BLOCK_INDEX=$((BLOCK_SIZE + CURRENT_INDEX)) # Not an off-by-one error because a new backup was already saved 
+    local OLDEST_BACKUP_IN_BLOCK_INDEX=$((BLOCK_SIZE + CURRENT_INDEX)) # Not an off-by-one error because a new backup was already saved
     local OLDEST_BACKUP_IN_BLOCK=${BACKUPS[OLDEST_BACKUP_IN_BLOCK_INDEX]}
 
     if [[ $OLDEST_BACKUP_IN_BLOCK == "" ]]; then
@@ -219,7 +225,7 @@ delete-thinning () {
     if $BLOCK_COMMAND; then
       # Oldest backup in this block satisfies the condition for placement in the next block
       if $DEBUG; then
-        echo "$OLDEST_BACKUP_IN_BLOCK promoted to next block" 
+        echo "$OLDEST_BACKUP_IN_BLOCK promoted to next block"
       fi
     else
       # Oldest backup in this block does not satisfy the condition for placement in next block
