@@ -19,6 +19,8 @@ COMPRESSION_LEVEL=3 # Passed to the compression algorithm
 ENABLE_CHAT_MESSAGES=false # Tell players in Minecraft chat about backup status
 PREFIX="Backup" # Shows in the chat message
 DEBUG=false # Enable debug messages
+GLACIER=false # Enable archive to Glacier
+GLACIER_VAULT_NAME="mcs_backups" # Vault name for Glacier uploads if enabled
 SUPPRESS_WARNINGS=false # Suppress warnings
 WINDOW_MANAGER="screen" # Choices: screen, tmux
 MCRCON_PORT=25575
@@ -26,19 +28,21 @@ MCRCON_PORT=25575
 DATE_FORMAT="%F_%H-%M-%S"
 TIMESTAMP=$(date +$DATE_FORMAT)
 
-while getopts 'a:cd:e:f:hi:l:m:o:p:qr:s:t:vw:' FLAG; do
+while getopts 'a:cd:e:f:ghi:l:m:o:p:qr:s:t:vw:' FLAG; do
   case $FLAG in
     a) COMPRESSION_ALGORITHM=$OPTARG ;;
     c) ENABLE_CHAT_MESSAGES=true ;;
     d) DELETE_METHOD=$OPTARG ;;
     e) COMPRESSION_FILE_EXTENSION=".$OPTARG" ;;
     f) TIMESTAMP=$OPTARG ;;
+    g) GLACIER=true ;;
     h) echo "Minecraft Backup (by Nicolas Chan)"
        echo "-a    Compression algorithm (default: gzip)"
        echo "-c    Enable chat messages"
        echo "-d    Delete method: thin (default), sequential, none"
        echo "-e    Compression file extension, exclude leading \".\" (default: gz)"
        echo "-f    Output file name (default is the timestamp)"
+       echo "-g    Upload backups to AWS S3 Glacier before deleting"
        echo "-h    Shows this help text"
        echo "-i    Input directory (path to world folder)"
        echo "-l    Compression level (default: 3)"
@@ -148,9 +152,24 @@ parse-file-timestamp () {
   echo $DATE_STRING
 }
 
+# Copy it to S3 Glacier
+glacier-archive () {
+  local BACKUP=$1
+  if $GLACIER; then
+    aws glacier upload-archive --account-id - --vault-name $GLACIER_VAULT_NAME --body $BACKUP_DIRECTORY/$BACKUP --archive-description $BACKUP | tee --append $BACKUP_DIRECTORY/.glacier_archives | grep --silent --perl-regexp '^[a-zA-Z0-9_-]+\t[a-zA-Z0-9]+\t.+$'
+    if [ $? -ne 0 ] ; then
+      log-warning "Archiving of backup $BACKUP to S3 Glacier failed"
+      message-players-error "Backup was NOT archived to S3!" "Please notify an administrator"
+    else
+      message-players-success "Old backup archived to S3 successfully"
+    fi
+  fi
+}
+
 # Delete a backup
 delete-backup () {
   local BACKUP=$1
+  glacier-archive $BACKUP
   rm $BACKUP_DIRECTORY/$BACKUP
   message-players "Deleted old backup" "$BACKUP"
 }
